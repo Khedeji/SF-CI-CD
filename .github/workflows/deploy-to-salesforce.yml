@@ -13,23 +13,27 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      - name: Install Salesforce CLI (sf CLI v2)
-        run: npm install @salesforce/cli --global
+      - name: Install Salesforce CLI (legacy sfdx)
+        run: |
+          npm install sfdx-cli@latest --global
+          sfdx --version
 
       - name: Authenticate with Salesforce
         run: |
           echo "${{ secrets.SF_JWT_KEY }}" > server.key
-          sf org login jwt \
+          sfdx force:auth:jwt:grant \
             --client-id ${{ secrets.SF_CONSUMER_KEY }} \
             --jwt-key-file server.key \
             --username ${{ secrets.SF_USERNAME }} \
             --instance-url ${{ secrets.SF_INSTANCE_URL }}
 
       - name: Verify Org Auth
-        run: sf org display --target-org ${{ secrets.SF_USERNAME }}
+        run: sfdx force:org:display --targetusername ${{ secrets.SF_USERNAME }}
 
       - name: Deploy metadata
-        run: sf project deploy start \
-              --source-dir force-app \
-              --target-org ${{ secrets.SF_USERNAME }} \
-              --test-level RunLocalTests
+        run: sfdx force:source:deploy \
+              -p force-app \
+              --targetusername ${{ secrets.SF_USERNAME }} \
+              --testlevel RunLocalTests \
+              --json \
+              --loglevel fatal
