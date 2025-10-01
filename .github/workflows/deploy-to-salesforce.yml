@@ -1,5 +1,6 @@
-name: Deploy to Salesforce
+name: Salesforce CI/CD Deploy
 
+# Trigger on pushes to the main branch
 on:
   push:
     branches:
@@ -10,28 +11,41 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      # Step 1: Checkout the repo
+      - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Install Salesforce CLI (sfdx)
+      # Step 2: Install Node.js (required for sfdx-cli)
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20.x'
+
+      # Step 3: Install Salesforce CLI (sfdx-cli, legacy but stable)
+      - name: Install Salesforce CLI
         run: npm install sfdx-cli@latest --global
 
-      - name: Authenticate with Salesforce
+      # Step 4: Authenticate with Salesforce using JWT
+      - name: Authenticate with Salesforce Org
         run: |
           echo "${{ secrets.SF_JWT_KEY }}" > server.key
           sfdx force:auth:jwt:grant \
             --client-id ${{ secrets.SF_CONSUMER_KEY }} \
             --jwt-key-file server.key \
             --username ${{ secrets.SF_USERNAME }} \
-            --instance-url ${{ secrets.SF_INSTANCE_URL }}
+            --instance-url ${{ secrets.SF_INSTANCE_URL }} \
+            --setalias ci-org \
+            --setdefaultusername
 
-      - name: Verify Org Auth
-        run: sfdx force:org:display --target-org ${{ secrets.SF_USERNAME }}
+      # Step 5: Verify org authentication
+      - name: Verify Org
+        run: sfdx force:org:display --target-org ci-org
 
-      - name: Deploy metadata
+      # Step 6: Deploy metadata to Salesforce
+      - name: Deploy Salesforce Metadata
         run: sfdx force:source:deploy \
               -p force-app \
-              --target-org ${{ secrets.SF_USERNAME }} \
+              --target-org ci-org \
               --testlevel RunLocalTests \
               --json \
               --loglevel fatal
