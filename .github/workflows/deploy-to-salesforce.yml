@@ -43,11 +43,6 @@ jobs:
 
       # Step 6: Deploy metadata to Salesforce
       - name: Deploy Salesforce Metadata
-        run: |
-             result=$(sfdx project deploy start --source-dir force-app --target-org ci-org --test-level RunLocalTests --json)
-             echo "$result"
-             if [[ $(echo "$result" | jq -r '.status') != "0" ]]; then
-                echo "Deployment failed."
-                exit 1
-             fi
+        run: sfdx project deploy start --source-dir force-app --target-org ci-org --test-level RunLocalTests
+
 
