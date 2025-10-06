@@ -10,11 +10,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout full repo history
+      # Step 1: Checkout repo
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
-          fetch-depth: 2  # need last 2 commits to compare
+          fetch-depth: 0
 
       # Step 2: Setup Node.js
       - name: Setup Node.js
@@ -26,7 +26,7 @@ jobs:
       - name: Install Salesforce CLI
         run: npm install sfdx-cli@latest --global
 
-      # Step 4: Authenticate with Salesforce Org
+      # Step 4: Authenticate with Salesforce
       - name: Authenticate with Salesforce Org
         run: |
           echo "${{ secrets.SF_JWT_KEY }}" > server.key
@@ -38,54 +38,30 @@ jobs:
             --setalias ci-org \
             --setdefaultusername
 
-      # Step 5: Detect changed metadata files (based on last commit)
-      # - name: Detect changed metadata
-      #   id: detect
-      #   run: |
-      #     echo "🔍 Checking changed metadata files between last 2 commits..."
-      #     git diff --name-only HEAD^ HEAD > changed_files.txt || echo ""
-      #     cat changed_files.txt
-
-      #     CHANGED_PATHS=$(grep "^force-app" changed_files.txt | sort | uniq | tr '\n' ',' | sed 's/,$//')
-      #     if [ -z "$CHANGED_PATHS" ]; then
-      #       echo "⚠️ No Salesforce metadata changes detected."
-      #     else
-      #       echo "✅ Changed paths: $CHANGED_PATHS"
-      #     fi
-      #     echo "changed_paths=$CHANGED_PATHS" >> $GITHUB_ENV
-      # Detect changed metadata (updated)
-      - name: Detect changed metadata
+      # Step 5: Detect changed directories
+      - name: Detect changed metadata directories
         id: detect
         run: |
           echo "🔍 Checking changed metadata files between last 2 commits..."
           git diff --name-only HEAD^ HEAD > changed_files.txt || echo ""
           cat changed_files.txt
 
-          # Extract unique folders of changed Salesforce metadata
+          # Extract unique folders for Salesforce metadata
           CHANGED_DIRS=$(grep "^force-app" changed_files.txt | xargs -n1 dirname | sort -u)
           if [ -z "$CHANGED_DIRS" ]; then
             echo "⚠️ No Salesforce metadata changes detected."
-          else
-            echo "✅ Changed directories:"
-            echo "$CHANGED_DIRS"
+            exit 0
           fi
-          echo "changed_dirs=$CHANGED_DIRS" >> $GITHUB_ENV
+          echo "✅ Changed directories detected:"
+          echo "$CHANGED_DIRS"
 
+          # Save directories to a temporary file for looping
+          echo "$CHANGED_DIRS" > dirs_to_deploy.txt
 
-      # Step 6: Deploy changed metadata
-      # Deploy changed metadata (loop over each folder)
-      - name: Deploy changed metadata only
-        if: env.changed_dirs != ''
+      # Step 6: Deploy changed directories
+      - name: Deploy changed metadata
         run: |
-          echo "🚀 Deploying changed metadata..."
-          for dir in ${{ env.changed_dirs }}
-          do
-            echo "Deploying $dir"
+          while read dir; do
+            echo "🚀 Deploying $dir"
             sfdx project deploy start --source-dir "$dir" --target-org ci-org --test-level NoTestRun
-          done
-
-
-      # Step 7: Skip deployment if no changes
-      - name: Skip deployment
-        if: env.changed_paths == ''
-        run: echo "✅ No Salesforce metadata changes found. Skipping deployment."
+          done < dirs_to_deploy.txt
