@@ -1,4 +1,4 @@
-name: Salesforce CI/CD Deploy (Selective)
+name: Salesforce CI/CD Deploy (Selective Files)
 
 on:
   push:
@@ -10,23 +10,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout repo
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      # Step 2: Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '20.x'
 
-      # Step 3: Install Salesforce CLI
       - name: Install Salesforce CLI
         run: npm install sfdx-cli@latest --global
 
-      # Step 4: Authenticate with Salesforce
       - name: Authenticate with Salesforce Org
         run: |
           echo "${{ secrets.SF_JWT_KEY }}" > server.key
@@ -38,30 +34,49 @@ jobs:
             --setalias ci-org \
             --setdefaultusername
 
-      # Step 5: Detect changed directories
-      - name: Detect changed metadata directories
+      - name: Detect changed files
         id: detect
         run: |
           echo "🔍 Checking changed metadata files between last 2 commits..."
           git diff --name-only HEAD^ HEAD > changed_files.txt || echo ""
           cat changed_files.txt
 
-          # Extract unique folders for Salesforce metadata
-          CHANGED_DIRS=$(grep "^force-app" changed_files.txt | xargs -n1 dirname | sort -u)
-          if [ -z "$CHANGED_DIRS" ]; then
-            echo "⚠️ No Salesforce metadata changes detected."
-            exit 0
-          fi
-          echo "✅ Changed directories detected:"
-          echo "$CHANGED_DIRS"
+          # Separate Apex/Class files from component folders
+          APEX_FILES=$(grep -E "force-app/.+\.cls$|force-app/.+\.trigger$" changed_files.txt || true)
+          META_FILES=$(grep -E "force-app/.+\.cls-meta.xml$|force-app/.+\.trigger-meta.xml$" changed_files.txt || true)
 
-          # Save directories to a temporary file for looping
-          echo "$CHANGED_DIRS" > dirs_to_deploy.txt
+          # For Aura / LWC / bundles, deploy the parent folder
+          COMPONENT_DIRS=$(grep -E "force-app/.+/(lwc|aura)/" changed_files.txt | xargs -n1 dirname | sort -u || true)
 
-      # Step 6: Deploy changed directories
-      - name: Deploy changed metadata
+          echo "Apex files changed:"
+          echo "$APEX_FILES"
+          echo "Meta files changed:"
+          echo "$META_FILES"
+          echo "Component directories changed:"
+          echo "$COMPONENT_DIRS"
+
+          # Save for deployment step
+          echo "$APEX_FILES" > apex_files.txt
+          echo "$META_FILES" > meta_files.txt
+          echo "$COMPONENT_DIRS" > component_dirs.txt
+
+      - name: Deploy Apex files only
+        if: ${{ steps.detect.outputs.apex_files != '' || steps.detect.outputs.meta_files != '' }}
+        run: |
+          while read file; do
+            echo "🚀 Deploying $file"
+            sfdx project deploy start --source-dir "$file" --target-org ci-org --test-level RunLocalTests
+          done < apex_files.txt
+
+          while read file; do
+            echo "🚀 Deploying $file"
+            sfdx project deploy start --source-dir "$file" --target-org ci-org --test-level RunLocalTests
+          done < meta_files.txt
+
+      - name: Deploy LWC / Aura / Bundles
+        if: ${{ steps.detect.outputs.component_dirs != '' }}
         run: |
           while read dir; do
-            echo "🚀 Deploying $dir"
+            echo "🚀 Deploying component directory $dir"
             sfdx project deploy start --source-dir "$dir" --target-org ci-org --test-level NoTestRun
-          done < dirs_to_deploy.txt
+          done < component_dirs.txt
