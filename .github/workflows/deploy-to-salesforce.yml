@@ -10,12 +10,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout repository (full history to detect changes)
+      # Step 1: Checkout repository (full history)
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
-          ref: main
 
       # Step 2: Setup Node.js
       - name: Setup Node.js
@@ -39,71 +38,72 @@ jobs:
             --setalias ci-org \
             --setdefaultusername
 
-
       # Step 5: Detect changed metadata files
       - name: Detect changed metadata
         id: detect
         run: |
           echo "🔍 Detecting changed metadata files..."
-          git fetch origin main
-          CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep "^force-app")
+          CHANGED_FILES=$(git diff --name-only $(git merge-base origin/main HEAD)..HEAD | grep "^force-app" || true)
           echo "$CHANGED_FILES"
 
-          # Separate by type
+          # Apex classes/triggers
           APEX_FILES=$(echo "$CHANGED_FILES" | grep "/classes/.*\.cls\|/classes/.*\.trigger" || true)
+          echo "APEX_FILES<<EOF" >> $GITHUB_ENV
+          echo "$APEX_FILES" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+          # LWC directories
           LWC_DIRS=$(echo "$CHANGED_FILES" | grep "/lwc/" | xargs -n1 dirname | sort -u || true)
+          echo "LWC_DIRS<<EOF" >> $GITHUB_ENV
+          echo "$LWC_DIRS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+          # Aura directories
           AURA_DIRS=$(echo "$CHANGED_FILES" | grep "/aura/" | xargs -n1 dirname | sort -u || true)
+          echo "AURA_DIRS<<EOF" >> $GITHUB_ENV
+          echo "$AURA_DIRS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+          # StaticResource directories
           STATIC_DIRS=$(echo "$CHANGED_FILES" | grep "/staticresources/" | xargs -n1 dirname | sort -u || true)
+          echo "STATIC_DIRS<<EOF" >> $GITHUB_ENV
+          echo "$STATIC_DIRS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
-          echo "Apex files: $APEX_FILES"
-          echo "LWC dirs: $LWC_DIRS"
-          echo "Aura dirs: $AURA_DIRS"
-          echo "StaticResource dirs: $STATIC_DIRS"
-
-          echo "APEX_FILES=$APEX_FILES" >> $GITHUB_ENV
-          echo "LWC_DIRS=$LWC_DIRS" >> $GITHUB_ENV
-          echo "AURA_DIRS=$AURA_DIRS" >> $GITHUB_ENV
-          echo "STATIC_DIRS=$STATIC_DIRS" >> $GITHUB_ENV
-
-      # Step 6: Deploy Apex classes/triggers if changed
+      # Step 6: Deploy Apex files individually
       - name: Deploy Apex
         if: env.APEX_FILES != ''
         run: |
           echo "🚀 Deploying Apex files..."
-          sf project deploy start \
-            --source-dir $(echo $APEX_FILES | tr ' ' ',') \
-            --target-org ${{ secrets.SF_USERNAME }} \
-            --test-level RunLocalTests
+          for file in $APEX_FILES; do
+            sf project deploy start --source-dir "$file" --target-org ${{ secrets.SF_USERNAME }} --test-level RunLocalTests
+          done
 
-      # Step 7: Deploy LWC if changed
+      # Step 7: Deploy LWC directories
       - name: Deploy LWC
         if: env.LWC_DIRS != ''
         run: |
           echo "🚀 Deploying LWC directories..."
-          sf project deploy start \
-            --source-dir $(echo $LWC_DIRS | tr ' ' ',') \
-            --target-org ${{ secrets.SF_USERNAME }} \
-            --test-level NoTestRun
+          for dir in $LWC_DIRS; do
+            sf project deploy start --source-dir "$dir" --target-org ${{ secrets.SF_USERNAME }} --test-level NoTestRun
+          done
 
-      # Step 8: Deploy Aura if changed
+      # Step 8: Deploy Aura directories
       - name: Deploy Aura
         if: env.AURA_DIRS != ''
         run: |
           echo "🚀 Deploying Aura directories..."
-          sf project deploy start \
-            --source-dir $(echo $AURA_DIRS | tr ' ' ',') \
-            --target-org ${{ secrets.SF_USERNAME }} \
-            --test-level NoTestRun
+          for dir in $AURA_DIRS; do
+            sf project deploy start --source-dir "$dir" --target-org ${{ secrets.SF_USERNAME }} --test-level NoTestRun
+          done
 
-      # Step 9: Deploy Static Resources if changed
+      # Step 9: Deploy StaticResource directories
       - name: Deploy Static Resources
         if: env.STATIC_DIRS != ''
         run: |
           echo "🚀 Deploying StaticResource directories..."
-          sf project deploy start \
-            --source-dir $(echo $STATIC_DIRS | tr ' ' ',') \
-            --target-org ${{ secrets.SF_USERNAME }} \
-            --test-level NoTestRun
+          for dir in $STATIC_DIRS; do
+            sf project deploy start --source-dir "$dir" --target-org ${{ secrets.SF_USERNAME }} --test-level NoTestRun
 
       # Step 10: Skip deploy if nothing changed
       - name: Skip deploy
