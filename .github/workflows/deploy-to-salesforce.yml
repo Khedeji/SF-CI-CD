@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout repository (fetch full history)
+      # Step 1: Checkout repository (fetch full history to compare changes)
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
@@ -30,82 +30,89 @@ jobs:
       - name: Authenticate with Salesforce Org
         run: |
           echo "${{ secrets.SF_JWT_KEY }}" > server.key
-          sfdx force:auth:jwt:grant \
+          sf auth:jwt:grant \
             --client-id ${{ secrets.SF_CONSUMER_KEY }} \
             --jwt-key-file server.key \
             --username ${{ secrets.SF_USERNAME }} \
             --instance-url ${{ secrets.SF_INSTANCE_URL }} \
-            --setalias ci-org \
-            --setdefaultusername
+            --set-default
 
-      # Step 5: Detect changed metadata
+      # Step 5: Detect changed metadata files
       - name: Detect changed metadata
         id: detect
         run: |
-          echo "🔍 Detecting changed metadata files..."
-          git fetch --no-tags origin main
+          echo "🔍 Detecting changed files..."
+          git fetch origin main
+          CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
+          echo "$CHANGED_FILES"
 
-          # Get changed files between last commit and current
-          git diff --name-only ${{ github.event.before }} ${{ github.sha }} > changed_files.txt
-          cat changed_files.txt
-
-          # Separate by metadata type and convert to space-separated
-          APEX_FILES=$(grep -E "^force-app/.*/classes/.*\.(cls|trigger)$" changed_files.txt || true)
-          LWC_DIRS=$(grep -E "^force-app/.*/lwc/[^/]+" changed_files.txt | xargs -n1 dirname | sort -u || true)
-          AURA_DIRS=$(grep -E "^force-app/.*/aura/[^/]+" changed_files.txt | xargs -n1 dirname | sort -u || true)
-          STATIC_DIRS=$(grep -E "^force-app/.*/staticresources/[^/]+" changed_files.txt | xargs -n1 dirname | sort -u || true)
-
-          # Convert multi-line to space-separated strings
-          APEX_FILES=$(echo $APEX_FILES)
-          LWC_DIRS=$(echo $LWC_DIRS)
-          AURA_DIRS=$(echo $AURA_DIRS)
-          STATIC_DIRS=$(echo $STATIC_DIRS)
-
+          # Apex classes
+          APEX_FILES=$(echo "$CHANGED_FILES" | grep "^force-app/.*/classes/.*\.cls$")
           echo "Apex files: $APEX_FILES"
+          echo "APEX_FILES<<EOF" >> $GITHUB_ENV
+          echo "$APEX_FILES" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+          # LWC
+          LWC_DIRS=$(echo "$CHANGED_FILES" | grep "^force-app/.*/lwc/" | xargs -n1 dirname | sort -u)
           echo "LWC dirs: $LWC_DIRS"
+          echo "LWC_DIRS<<EOF" >> $GITHUB_ENV
+          echo "$LWC_DIRS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+          # Aura
+          AURA_DIRS=$(echo "$CHANGED_FILES" | grep "^force-app/.*/aura/" | xargs -n1 dirname | sort -u)
           echo "Aura dirs: $AURA_DIRS"
+          echo "AURA_DIRS<<EOF" >> $GITHUB_ENV
+          echo "$AURA_DIRS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+          # StaticResources
+          STATIC_DIRS=$(echo "$CHANGED_FILES" | grep "^force-app/.*/staticresources/" | xargs -n1 dirname | sort -u)
           echo "StaticResource dirs: $STATIC_DIRS"
+          echo "STATIC_DIRS<<EOF" >> $GITHUB_ENV
+          echo "$STATIC_DIRS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
-          # Save to GitHub Actions env
-          echo "APEX_FILES=$APEX_FILES" >> $GITHUB_ENV
-          echo "LWC_DIRS=$LWC_DIRS" >> $GITHUB_ENV
-          echo "AURA_DIRS=$AURA_DIRS" >> $GITHUB_ENV
-          echo "STATIC_DIRS=$STATIC_DIRS" >> $GITHUB_ENV
-
-      # Step 6: Deploy changed Apex classes/triggers
-      - name: Deploy Apex
+      # Step 6: Deploy Apex classes
+      - name: Deploy Apex files
         if: env.APEX_FILES != ''
         run: |
-          echo "🚀 Deploying Apex files..."
-          for f in $APEX_FILES; do
-            sfdx force:source:deploy -p "$f" --target-org ci-org --test-level  RunLocalTests --json --loglevel fatal
+          echo "🚀 Deploying Apex classes..."
+          for file in $APEX_FILES; do
+            dir=$(dirname "$file")
+            echo "Deploying $file from $dir"
+            sf project deploy start --source-dir "$dir" --target-org ${{ secrets.SF_USERNAME }} --test-level RunLocalTests
           done
 
-      # Step 7: Deploy changed LWC
-      - name: Deploy LWC
+      # Step 7: Deploy LWC components
+      - name: Deploy LWC components
         if: env.LWC_DIRS != ''
         run: |
-          echo "🚀 Deploying LWC directories..."
+          echo "🚀 Deploying LWC components..."
           for dir in $LWC_DIRS; do
-            sfdx project deploy start --source-dir "$dir" --target-org ci-org --test-level NoTestRun
+            echo "Deploying $dir"
+            sf project deploy start --source-dir "$dir" --target-org ${{ secrets.SF_USERNAME }}
           done
 
-      # Step 8: Deploy changed Aura components
-      - name: Deploy Aura
+      # Step 8: Deploy Aura components
+      - name: Deploy Aura components
         if: env.AURA_DIRS != ''
         run: |
-          echo "🚀 Deploying Aura directories..."
+          echo "🚀 Deploying Aura components..."
           for dir in $AURA_DIRS; do
-            sfdx project deploy start --source-dir "$dir" --target-org ci-org --test-level NoTestRun
+            echo "Deploying $dir"
+            sf project deploy start --source-dir "$dir" --target-org ${{ secrets.SF_USERNAME }}
           done
 
-      # Step 9: Deploy changed Static Resources
-      - name: Deploy StaticResources
+      # Step 9: Deploy Static Resources
+      - name: Deploy Static Resources
         if: env.STATIC_DIRS != ''
         run: |
-          echo "🚀 Deploying StaticResource directories..."
+          echo "🚀 Deploying Static Resources..."
           for dir in $STATIC_DIRS; do
-            sfdx project deploy start --source-dir "$dir" --target-org ci-org --test-level NoTestRun
+            echo "Deploying $dir"
+            sf project deploy start --source-dir "$dir" --target-org ${{ secrets.SF_USERNAME }}
           done
 
       # Step 10: Skip deploy if nothing changed
