@@ -1,0 +1,140 @@
+name: Test Salesforce Metadata Detection
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'feature/*'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test-detection:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout repository (full history)
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      # Step 2: Test metadata detection
+      - name: Test Metadata Detection
+        run: |
+          echo "🧪 Testing metadata detection logic..."
+          
+          # Debug: Show current branch and commit info
+          echo "Current branch: $(git branch --show-current)"
+          echo "Current commit: $(git rev-parse HEAD)"
+          echo "Remote branches:"
+          git branch -r
+          
+          # Ensure we have the latest remote info
+          git fetch origin main || true
+          
+          # Try multiple strategies to find changed files
+          CHANGED_FILES=""
+          
+          # Strategy 1: Compare with previous commit if this is not the first commit
+          if [ $(git rev-list --count HEAD) -gt 1 ]; then
+            echo "📋 Strategy 1: Comparing with previous commit..."
+            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD | grep "^force-app/" || true)
+            echo "Files from Strategy 1:"
+            echo "$CHANGED_FILES"
+          fi
+          
+          # Strategy 2: If no changes found and we have remote main, compare with remote
+          if [ -z "$CHANGED_FILES" ] && git rev-parse --verify origin/main >/dev/null 2>&1; then
+            echo "📋 Strategy 2: Comparing with origin/main..."
+            MERGE_BASE=$(git merge-base HEAD origin/main 2>/dev/null || echo "")
+            if [ -n "$MERGE_BASE" ]; then
+              echo "Using merge base: $MERGE_BASE"
+              CHANGED_FILES=$(git diff --name-only $MERGE_BASE HEAD | grep "^force-app/" || true)
+            else
+              echo "No merge base found, using direct comparison"
+              CHANGED_FILES=$(git diff --name-only origin/main HEAD | grep "^force-app/" || true)
+            fi
+            echo "Files from Strategy 2:"
+            echo "$CHANGED_FILES"
+          fi
+          
+          # Strategy 3: If still no changes, check all force-app files in current commit
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "📋 Strategy 3: Checking all files in force-app (fallback)..."
+            CHANGED_FILES=$(git ls-tree -r --name-only HEAD | grep "^force-app/" || true)
+            echo "Files from Strategy 3:"
+            echo "$CHANGED_FILES"
+          fi
+          
+          echo ""
+          echo "📂 Final changed files detected:"
+          echo "$CHANGED_FILES"
+          
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "⚠️ No force-app files detected!"
+            exit 0
+          fi
+          
+          # Process different types of metadata
+          echo ""
+          echo "🔍 Processing different metadata types:"
+          
+          # Apex classes and triggers
+          APEX_FILES=$(echo "$CHANGED_FILES" | grep -E "\.(cls|trigger)$" || true)
+          if [ -n "$APEX_FILES" ]; then
+            echo "📋 Apex files found:"
+            echo "$APEX_FILES"
+          else
+            echo "📋 No Apex files found"
+          fi
+          
+          # LWC components
+          LWC_COMPONENTS=""
+          if echo "$CHANGED_FILES" | grep -q "/lwc/"; then
+            LWC_COMPONENTS=$(echo "$CHANGED_FILES" | grep "/lwc/" | sed -n 's|.*force-app/main/default/lwc/\([^/]*\)/.*|\1|p' | sort -u || true)
+            echo "⚡ LWC components found:"
+            echo "$LWC_COMPONENTS"
+          else
+            echo "⚡ No LWC components found"
+          fi
+          
+          # Aura components
+          AURA_COMPONENTS=""
+          if echo "$CHANGED_FILES" | grep -q "/aura/"; then
+            AURA_COMPONENTS=$(echo "$CHANGED_FILES" | grep "/aura/" | sed -n 's|.*force-app/main/default/aura/\([^/]*\)/.*|\1|p' | sort -u || true)
+            echo "🔥 Aura components found:"
+            echo "$AURA_COMPONENTS"
+          else
+            echo "🔥 No Aura components found"
+          fi
+          
+          # Static Resources
+          STATIC_RESOURCES=""
+          if echo "$CHANGED_FILES" | grep -q "/staticresources/"; then
+            STATIC_RESOURCES=$(echo "$CHANGED_FILES" | grep "/staticresources/" | sed -n 's|.*force-app/main/default/staticresources/\([^/]*\).*|\1|p' | sort -u || true)
+            echo "📁 Static resources found:"
+            echo "$STATIC_RESOURCES"
+          else
+            echo "📁 No Static resources found"
+          fi
+          
+          # Other metadata
+          OTHER_METADATA=$(echo "$CHANGED_FILES" | grep -v -E "/(classes|lwc|aura|staticresources)/" | grep "^force-app/" || true)
+          if [ -n "$OTHER_METADATA" ]; then
+            echo "🔧 Other metadata found:"
+            echo "$OTHER_METADATA"
+          else
+            echo "🔧 No other metadata found"
+          fi
+          
+          echo ""
+          echo "📊 Detection Summary:"
+          echo "- Total changed files: $(echo "$CHANGED_FILES" | wc -l)"
+          echo "- Apex files: $(echo "$APEX_FILES" | wc -l)"
+          echo "- LWC components: $(echo "$LWC_COMPONENTS" | wc -l)"
+          echo "- Aura components: $(echo "$AURA_COMPONENTS" | wc -l)"
+          echo "- Static resources: $(echo "$STATIC_RESOURCES" | wc -l)"
+          echo "- Other metadata: $(echo "$OTHER_METADATA" | wc -l)"
