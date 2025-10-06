@@ -42,25 +42,35 @@ jobs:
           cat changed_files.txt
 
           # Apex classes/triggers
-          APEX_FILES=$(grep -E "force-app/.+\.cls$|force-app/.+\.trigger$" changed_files.txt || true)
-          META_FILES=$(grep -E "force-app/.+\.cls-meta.xml$|force-app/.+\.trigger-meta.xml$" changed_files.txt || true)
+          APEX_FILES=$(grep -E "force-app/.+\.(cls|trigger)$" changed_files.txt || true)
+          META_FILES=$(grep -E "force-app/.+\-(cls|trigger)-meta\.xml$" changed_files.txt || true)
 
-          # Aura/LWC components: deploy the folder
-          COMPONENT_DIRS=$(grep -E "force-app/.+/(lwc|aura)/" changed_files.txt | xargs -n1 dirname | sort -u || true)
+          # LWC/Aura components: deploy the parent folder
+          COMPONENT_DIRS=$(grep -E "force-app/.+/(lwc|aura)/" changed_files.txt | sort -u || true)
 
-          # Export as environment variables for subsequent steps
-          echo "APEX_FILES=$APEX_FILES" >> $GITHUB_ENV
-          echo "META_FILES=$META_FILES" >> $GITHUB_ENV
-          echo "COMPONENT_DIRS=$COMPONENT_DIRS" >> $GITHUB_ENV
+          # Remove empty lines
+          COMPONENT_DIRS=$(echo "$COMPONENT_DIRS" | sed '/^$/d')
+
+          # Export as environment variables
+          echo "APEX_FILES<<EOF" >> $GITHUB_ENV
+          echo "$APEX_FILES" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+          echo "META_FILES<<EOF" >> $GITHUB_ENV
+          echo "$META_FILES" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+          echo "COMPONENT_DIRS<<EOF" >> $GITHUB_ENV
+          echo "$COMPONENT_DIRS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
       - name: Deploy Apex Classes / Triggers
         if: env.APEX_FILES != '' || env.META_FILES != ''
         run: |
           echo "🚀 Deploying Apex files..."
-          for file in $APEX_FILES $META_FILES; do
-            echo "Deploying $file"
-            sfdx project deploy start --source-dir "$file" --target-org ci-org --test-level RunLocalTests
-          done
+          FILES="$APEX_FILES $META_FILES"
+          echo "Deploying files: $FILES"
+          sfdx project deploy start --source-dir $FILES --target-org ci-org --test-level RunLocalTests
 
       - name: Deploy LWC / Aura Components
         if: env.COMPONENT_DIRS != ''
