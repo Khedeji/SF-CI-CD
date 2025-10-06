@@ -24,9 +24,8 @@ jobs:
 
       # Step 3: Install modern Salesforce CLI (sf)
       - name: Install Salesforce CLI
-        uses: sfdx-actions/setup-sfdx@v2
-        with:
-          version: latest
+        run: npm install sfdx-cli@latest --global
+
 
       # Step 4: Authenticate to Salesforce using JWT
       - name: Authenticate with Salesforce Org
