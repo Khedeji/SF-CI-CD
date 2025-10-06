@@ -10,27 +10,23 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout repository (fetch full history for diff)
+      # Step 1: Checkout full repo history
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0
+          fetch-depth: 2  # need last 2 commits to compare
 
-      # Step 2: Fetch main branch for comparison
-      - name: Fetch main branch
-        run: git fetch origin main
-
-      # Step 3: Setup Node.js (required for Salesforce CLI)
+      # Step 2: Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '20.x'
 
-      # Step 4: Install Salesforce CLI
+      # Step 3: Install Salesforce CLI
       - name: Install Salesforce CLI
         run: npm install sfdx-cli@latest --global
 
-      # Step 5: Authenticate with Salesforce Org via JWT
+      # Step 4: Authenticate with Salesforce Org
       - name: Authenticate with Salesforce Org
         run: |
           echo "${{ secrets.SF_JWT_KEY }}" > server.key
@@ -42,12 +38,12 @@ jobs:
             --setalias ci-org \
             --setdefaultusername
 
-      # Step 6: Detect changed metadata files
+      # Step 5: Detect changed metadata files (based on last commit)
       - name: Detect changed metadata
         id: detect
         run: |
-          echo "🔍 Checking changed metadata files..."
-          git diff --name-only origin/main...HEAD > changed_files.txt
+          echo "🔍 Checking changed metadata files between last 2 commits..."
+          git diff --name-only HEAD^ HEAD > changed_files.txt || echo ""
           cat changed_files.txt
 
           CHANGED_PATHS=$(grep "^force-app" changed_files.txt | sort | uniq | tr '\n' ',' | sed 's/,$//')
@@ -58,7 +54,7 @@ jobs:
           fi
           echo "changed_paths=$CHANGED_PATHS" >> $GITHUB_ENV
 
-      # Step 7: Deploy only changed metadata
+      # Step 6: Deploy changed metadata
       - name: Deploy changed metadata only
         if: env.changed_paths != ''
         run: |
@@ -68,7 +64,7 @@ jobs:
             --target-org ci-org \
             --test-level NoTestRun
 
-      # Step 8: Skip deploy if nothing changed
+      # Step 7: Skip deployment if no changes
       - name: Skip deployment
         if: env.changed_paths == ''
         run: echo "✅ No Salesforce metadata changes found. Skipping deployment."
