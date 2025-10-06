@@ -1,10 +1,10 @@
 <template>
 
-    <lightning-card icon-name={lendingLogikLogo} title="Loan Analysis by Vikas Kghede Logik">
+    <lightning-card icon-name={lendingLogikLogo} title="Loan Analysis by LendingLogik">
         <lightning-button-icon icon-name="utility:refresh" onclick={runAnalysis} class="slds-m-right_large" alternative-text="Refresh" title="Refresh" style="float: right; margin-top: -25px;"></lightning-button-icon>
         <p style="color:red">{errorMsg}</p>
         <br/>
-        <p class="flynx-txt">Credit Decision Logik™ is <span class={confidenceClass}>{confidenceMeasure}% confident </span> on this measure.</p>
+        <p class="flynx-txt">Credit Decision Logik™ is <span class={confidenceClass}>{confidenceMeasure}% confident </span> on this prediction</p>
         <lightning-layout class="slds-align_absolute-center">
             <div>
                 <img class="signal" src={redSignalUrl}>
