@@ -10,23 +10,23 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout repository with full history
+      # Step 1: Checkout repository (full history to detect changes)
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      # 2️⃣ Setup Node.js
+      # Step 2: Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '20.x'
 
-      # 3️⃣ Install Salesforce CLI
+      # Step 3: Install Salesforce CLI
       - name: Install Salesforce CLI
         run: npm install sfdx-cli@latest --global
 
-      # 4️⃣ Authenticate with Salesforce Org using JWT
+      # Step 4: Authenticate with Salesforce
       - name: Authenticate with Salesforce Org
         run: |
           echo "${{ secrets.SF_JWT_KEY }}" > server.key
@@ -38,66 +38,72 @@ jobs:
             --setalias ci-org \
             --setdefaultusername
 
-      # 5️⃣ Detect changed metadata files
+      # Step 5: Detect changed files
       - name: Detect changed metadata
         id: detect
         run: |
           echo "🔍 Detecting changed metadata files..."
-          git diff --name-only origin/main...HEAD > changed_files.txt || echo ""
+          git fetch origin main
+          git diff --name-only origin/main...HEAD > changed_files.txt
           cat changed_files.txt
 
-          # Apex classes/triggers (including meta files)
-          APEX_FILES=$(grep -E "force-app/.+\.(cls|trigger)$" changed_files.txt || true)
-          APEX_META=$(grep -E "force-app/.+-(cls|trigger)-meta\.xml$" changed_files.txt || true)
+          # Separate by metadata type
+          APEX_FILES=$(grep -E "^force-app/.*/classes/.*\.(cls|trigger)$" changed_files.txt || true)
+          LWC_DIRS=$(grep -E "^force-app/.*/lwc/[^/]+" changed_files.txt | xargs -n1 dirname | sort -u || true)
+          AURA_DIRS=$(grep -E "^force-app/.*/aura/[^/]+" changed_files.txt | xargs -n1 dirname | sort -u || true)
+          STATIC_DIRS=$(grep -E "^force-app/.*/staticresources/[^/]+" changed_files.txt | xargs -n1 dirname | sort -u || true)
 
-          # LWC and Aura components (deploy the parent folder)
-          COMPONENT_DIRS=$(grep -E "force-app/.+/(lwc|aura)/" changed_files.txt | sed 's#/[^/]*$##' | sort -u || true)
+          echo "Apex files: $APEX_FILES"
+          echo "LWC dirs: $LWC_DIRS"
+          echo "Aura dirs: $AURA_DIRS"
+          echo "StaticResource dirs: $STATIC_DIRS"
 
-          # Static resources
-          STATIC_DIRS=$(grep -E "force-app/.+/staticresources/" changed_files.txt | sed 's#/[^/]*$##' | sort -u || true)
+          echo "APEX_FILES=$APEX_FILES" >> $GITHUB_ENV
+          echo "LWC_DIRS=$LWC_DIRS" >> $GITHUB_ENV
+          echo "AURA_DIRS=$AURA_DIRS" >> $GITHUB_ENV
+          echo "STATIC_DIRS=$STATIC_DIRS" >> $GITHUB_ENV
 
-          # Export environment variables
-          echo "APEX_FILES<<EOF" >> $GITHUB_ENV
-          echo "$APEX_FILES $APEX_META" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-
-          echo "COMPONENT_DIRS<<EOF" >> $GITHUB_ENV
-          echo "$COMPONENT_DIRS" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-
-          echo "STATIC_DIRS<<EOF" >> $GITHUB_ENV
-          echo "$STATIC_DIRS" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-
-      # 6️⃣ Deploy Apex classes/triggers (with tests)
-      - name: Deploy Apex Classes/Triggers
+      # Step 6: Deploy Apex classes/triggers
+      - name: Deploy Apex classes/triggers
         if: env.APEX_FILES != ''
         run: |
           echo "🚀 Deploying Apex files..."
-          echo "$APEX_FILES" | tr ' ' '\n'
-          sfdx project deploy start --source-dir "$APEX_FILES" --target-org ci-org --test-level RunLocalTests
+          for file in $APEX_FILES; do
+            folder=$(dirname $file)
+            echo "Deploying folder: $folder"
+            sfdx project deploy start --source-dir "$folder" --target-org ci-org --test-level RunLocalTests
+          done
 
-      # 7️⃣ Deploy LWC/Aura components
-      - name: Deploy LWC/Aura Components
-        if: env.COMPONENT_DIRS != ''
+      # Step 7: Deploy LWC
+      - name: Deploy LWC components
+        if: env.LWC_DIRS != ''
         run: |
-          echo "🚀 Deploying LWC/Aura components..."
-          for dir in $COMPONENT_DIRS; do
-            echo "Deploying folder: $dir"
+          echo "🚀 Deploying LWC directories..."
+          for dir in $LWC_DIRS; do
+            echo "Deploying $dir"
             sfdx project deploy start --source-dir "$dir" --target-org ci-org --test-level NoTestRun
           done
 
-      # 8️⃣ Deploy Static Resources
+      # Step 8: Deploy Aura components
+      - name: Deploy Aura components
+        if: env.AURA_DIRS != ''
+        run: |
+          echo "🚀 Deploying Aura directories..."
+          for dir in $AURA_DIRS; do
+            echo "Deploying $dir"
+            sfdx project deploy start --source-dir "$dir" --target-org ci-org --test-level NoTestRun
+          done
+
+      # Step 9: Deploy Static Resources
       - name: Deploy Static Resources
         if: env.STATIC_DIRS != ''
         run: |
-          echo "🚀 Deploying Static Resources..."
+          echo "🚀 Deploying Static Resource directories..."
           for dir in $STATIC_DIRS; do
-            echo "Deploying folder: $dir"
+            echo "Deploying $dir"
             sfdx project deploy start --source-dir "$dir" --target-org ci-org --test-level NoTestRun
-          done
 
-      # 9️⃣ Skip deployment if nothing changed
+      # Step 10: Skip if nothing changed
       - name: Skip deploy
-        if: env.APEX_FILES == '' && env.COMPONENT_DIRS == '' && env.STATIC_DIRS == ''
+        if: env.APEX_FILES == '' && env.LWC_DIRS == '' && env.AURA_DIRS == '' && env.STATIC_DIRS == ''
         run: echo "✅ No Salesforce metadata changes detected. Skipping deployment."
