@@ -23,13 +23,10 @@ jobs:
           node-version: '20.x'
 
       # Step 3: Install modern Salesforce CLI (sf)
-      - name: Install Salesforce CLI (sf)
-        run: |
-          wget https://developer.salesforce.com/media/salesforce-cli/sf-linux-amd64.tar.xz
-          mkdir sf
-          tar xf sf-linux-amd64.tar.xz -C sf --strip-components 1
-          ./sf/install
-          sf --version
+      - name: Install Salesforce CLI
+        uses: sfdx-actions/setup-sfdx@v2
+        with:
+          version: latest
 
       # Step 4: Authenticate to Salesforce using JWT
       - name: Authenticate with Salesforce Org
