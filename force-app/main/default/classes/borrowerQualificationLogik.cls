@@ -44,7 +44,8 @@ public with sharing class borrowerQualificationLogik {
             //END
             
             // bodyList.add(body);             
-            rootMap.put('body', body);       
+            rootMap.put('body', body);    
+            System.debug('Checking for deploy :');   
             System.debug('Body List Obj Map :'+bodyList);
             String requestBodyString = JSON.serialize(rootMap);
             
