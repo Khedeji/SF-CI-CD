@@ -1,6 +1,5 @@
-name: Salesforce CI/CD Deploy
+name: Salesforce CI/CD Deploy (Selective)
 
-# Trigger on pushes to the main branch
 on:
   push:
     branches:
@@ -11,21 +10,23 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout the repo
+      # Step 1: Checkout repository (fetch full history to compare changes)
       - name: Checkout repository
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
-      # Step 2: Install Node.js (required for sfdx-cli)
+      # Step 2: Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '20.x'
 
-      # Step 3: Install Salesforce CLI (sfdx-cli, legacy but stable)
+      # Step 3: Install Salesforce CLI
       - name: Install Salesforce CLI
         run: npm install sfdx-cli@latest --global
 
-      # Step 4: Authenticate with Salesforce using JWT
+      # Step 4: Authenticate with Salesforce
       - name: Authenticate with Salesforce Org
         run: |
           echo "${{ secrets.SF_JWT_KEY }}" > server.key
@@ -37,12 +38,27 @@ jobs:
             --setalias ci-org \
             --setdefaultusername
 
-      # Step 5: Verify org authentication
-      - name: Verify Org
-        run: sfdx force:org:display --target-org ci-org
+      # Step 5: Detect changed metadata files
+      - name: Detect changed files
+        id: changed
+        run: |
+          echo "Checking changed metadata..."
+          git diff --name-only HEAD^ HEAD > changed_files.txt
+          cat changed_files.txt
+          CHANGED_DIRS=$(grep "^force-app" changed_files.txt | awk -F/ '{print $1"/"$2"/"$3}' | sort | uniq | tr '\n' ',' | sed 's/,$//')
+          echo "changed_dirs=$CHANGED_DIRS" >> $GITHUB_ENV
 
-      # Step 6: Deploy metadata to Salesforce
-      - name: Deploy Salesforce Metadata
-        run: sfdx project deploy start --source-dir force-app --target-org ci-org --test-level NoTestRun
+      # Step 6: Conditional Deployment
+      - name: Deploy changed metadata only
+        if: env.changed_dirs != ''
+        run: |
+          echo "Deploying changed directories: ${{ env.changed_dirs }}"
+          sfdx project deploy start \
+            --source-dir ${{ env.changed_dirs }} \
+            --target-org ci-org \
+            --test-level NoTestRun
 
-
+      # Step 7: Skip deploy if nothing changed
+      - name: Skip deploy
+        if: env.changed_dirs == ''
+        run: echo "✅ No Salesforce metadata changes detected. Skipping deployment."
