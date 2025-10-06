@@ -1,4 +1,4 @@
-name: Salesforce CI/CD Deploy (Selective Files)
+name: Salesforce CI/CD Deploy (Selective)
 
 on:
   push:
@@ -10,19 +10,23 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      # 1️⃣ Checkout repository with full history
+      - name: Checkout repository
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
+      # 2️⃣ Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '20.x'
 
+      # 3️⃣ Install Salesforce CLI
       - name: Install Salesforce CLI
         run: npm install sfdx-cli@latest --global
 
+      # 4️⃣ Authenticate with Salesforce Org using JWT
       - name: Authenticate with Salesforce Org
         run: |
           echo "${{ secrets.SF_JWT_KEY }}" > server.key
@@ -34,6 +38,7 @@ jobs:
             --setalias ci-org \
             --setdefaultusername
 
+      # 5️⃣ Detect changed metadata files
       - name: Detect changed metadata
         id: detect
         run: |
@@ -41,42 +46,58 @@ jobs:
           git diff --name-only origin/main...HEAD > changed_files.txt || echo ""
           cat changed_files.txt
 
-          # Apex classes/triggers
+          # Apex classes/triggers (including meta files)
           APEX_FILES=$(grep -E "force-app/.+\.(cls|trigger)$" changed_files.txt || true)
-          META_FILES=$(grep -E "force-app/.+\-(cls|trigger)-meta\.xml$" changed_files.txt || true)
+          APEX_META=$(grep -E "force-app/.+-(cls|trigger)-meta\.xml$" changed_files.txt || true)
 
-          # LWC/Aura components: deploy the parent folder
-          COMPONENT_DIRS=$(grep -E "force-app/.+/(lwc|aura)/" changed_files.txt | sort -u || true)
+          # LWC and Aura components (deploy the parent folder)
+          COMPONENT_DIRS=$(grep -E "force-app/.+/(lwc|aura)/" changed_files.txt | sed 's#/[^/]*$##' | sort -u || true)
 
-          # Remove empty lines
-          COMPONENT_DIRS=$(echo "$COMPONENT_DIRS" | sed '/^$/d')
+          # Static resources
+          STATIC_DIRS=$(grep -E "force-app/.+/staticresources/" changed_files.txt | sed 's#/[^/]*$##' | sort -u || true)
 
-          # Export as environment variables
+          # Export environment variables
           echo "APEX_FILES<<EOF" >> $GITHUB_ENV
-          echo "$APEX_FILES" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-
-          echo "META_FILES<<EOF" >> $GITHUB_ENV
-          echo "$META_FILES" >> $GITHUB_ENV
+          echo "$APEX_FILES $APEX_META" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
           echo "COMPONENT_DIRS<<EOF" >> $GITHUB_ENV
           echo "$COMPONENT_DIRS" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-      - name: Deploy Apex Classes / Triggers
-        if: env.APEX_FILES != '' || env.META_FILES != ''
+          echo "STATIC_DIRS<<EOF" >> $GITHUB_ENV
+          echo "$STATIC_DIRS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      # 6️⃣ Deploy Apex classes/triggers (with tests)
+      - name: Deploy Apex Classes/Triggers
+        if: env.APEX_FILES != ''
         run: |
           echo "🚀 Deploying Apex files..."
-          FILES="$APEX_FILES $META_FILES"
-          echo "Deploying files: $FILES"
-          sfdx project deploy start --source-dir $FILES --target-org ci-org --test-level RunLocalTests
+          echo "$APEX_FILES" | tr ' ' '\n'
+          sfdx project deploy start --source-dir "$APEX_FILES" --target-org ci-org --test-level RunLocalTests
 
-      - name: Deploy LWC / Aura Components
+      # 7️⃣ Deploy LWC/Aura components
+      - name: Deploy LWC/Aura Components
         if: env.COMPONENT_DIRS != ''
         run: |
           echo "🚀 Deploying LWC/Aura components..."
           for dir in $COMPONENT_DIRS; do
-            echo "Deploying folder $dir"
+            echo "Deploying folder: $dir"
             sfdx project deploy start --source-dir "$dir" --target-org ci-org --test-level NoTestRun
           done
+
+      # 8️⃣ Deploy Static Resources
+      - name: Deploy Static Resources
+        if: env.STATIC_DIRS != ''
+        run: |
+          echo "🚀 Deploying Static Resources..."
+          for dir in $STATIC_DIRS; do
+            echo "Deploying folder: $dir"
+            sfdx project deploy start --source-dir "$dir" --target-org ci-org --test-level NoTestRun
+          done
+
+      # 9️⃣ Skip deployment if nothing changed
+      - name: Skip deploy
+        if: env.APEX_FILES == '' && env.COMPONENT_DIRS == '' && env.STATIC_DIRS == ''
+        run: echo "✅ No Salesforce metadata changes detected. Skipping deployment."
