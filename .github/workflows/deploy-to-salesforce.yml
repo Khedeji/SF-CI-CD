@@ -34,49 +34,39 @@ jobs:
             --setalias ci-org \
             --setdefaultusername
 
-      - name: Detect changed files
+      - name: Detect changed metadata
         id: detect
         run: |
-          echo "🔍 Checking changed metadata files between last 2 commits..."
-          git diff --name-only HEAD^ HEAD > changed_files.txt || echo ""
+          echo "🔍 Detecting changed metadata files..."
+          git diff --name-only origin/main...HEAD > changed_files.txt || echo ""
           cat changed_files.txt
 
-          # Separate Apex/Class files from component folders
+          # Apex classes/triggers
           APEX_FILES=$(grep -E "force-app/.+\.cls$|force-app/.+\.trigger$" changed_files.txt || true)
           META_FILES=$(grep -E "force-app/.+\.cls-meta.xml$|force-app/.+\.trigger-meta.xml$" changed_files.txt || true)
 
-          # For Aura / LWC / bundles, deploy the parent folder
+          # Aura/LWC components: deploy the folder
           COMPONENT_DIRS=$(grep -E "force-app/.+/(lwc|aura)/" changed_files.txt | xargs -n1 dirname | sort -u || true)
 
-          echo "Apex files changed:"
-          echo "$APEX_FILES"
-          echo "Meta files changed:"
-          echo "$META_FILES"
-          echo "Component directories changed:"
-          echo "$COMPONENT_DIRS"
+          # Export as environment variables for subsequent steps
+          echo "APEX_FILES=$APEX_FILES" >> $GITHUB_ENV
+          echo "META_FILES=$META_FILES" >> $GITHUB_ENV
+          echo "COMPONENT_DIRS=$COMPONENT_DIRS" >> $GITHUB_ENV
 
-          # Save for deployment step
-          echo "$APEX_FILES" > apex_files.txt
-          echo "$META_FILES" > meta_files.txt
-          echo "$COMPONENT_DIRS" > component_dirs.txt
-
-      - name: Deploy Apex files only
-        if: ${{ steps.detect.outputs.apex_files != '' || steps.detect.outputs.meta_files != '' }}
+      - name: Deploy Apex Classes / Triggers
+        if: env.APEX_FILES != '' || env.META_FILES != ''
         run: |
-          while read file; do
-            echo "🚀 Deploying $file"
+          echo "🚀 Deploying Apex files..."
+          for file in $APEX_FILES $META_FILES; do
+            echo "Deploying $file"
             sfdx project deploy start --source-dir "$file" --target-org ci-org --test-level RunLocalTests
-          done < apex_files.txt
+          done
 
-          while read file; do
-            echo "🚀 Deploying $file"
-            sfdx project deploy start --source-dir "$file" --target-org ci-org --test-level RunLocalTests
-          done < meta_files.txt
-
-      - name: Deploy LWC / Aura / Bundles
-        if: ${{ steps.detect.outputs.component_dirs != '' }}
+      - name: Deploy LWC / Aura Components
+        if: env.COMPONENT_DIRS != ''
         run: |
-          while read dir; do
-            echo "🚀 Deploying component directory $dir"
+          echo "🚀 Deploying LWC/Aura components..."
+          for dir in $COMPONENT_DIRS; do
+            echo "Deploying folder $dir"
             sfdx project deploy start --source-dir "$dir" --target-org ci-org --test-level NoTestRun
-          done < component_dirs.txt
+          done
