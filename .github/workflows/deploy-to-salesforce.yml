@@ -78,7 +78,7 @@ jobs:
         run: |
           echo "🚀 Deploying Apex files..."
           for f in $APEX_FILES; do
-            sfdx force:source:deploy -p "$f" --target-org ci-org --test-level RunLocalTests
+            sfdx force:source:deploy -p "$f" --target-org ci-org --test-level  RunLocalTests --json --loglevel fatal
           done
 
       # Step 7: Deploy changed LWC
