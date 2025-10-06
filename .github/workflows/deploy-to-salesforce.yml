@@ -49,17 +49,24 @@ jobs:
           git diff --name-only ${{ github.event.before }} ${{ github.sha }} > changed_files.txt
           cat changed_files.txt
 
-          # Separate by metadata type
+          # Separate by metadata type and convert to space-separated
           APEX_FILES=$(grep -E "^force-app/.*/classes/.*\.(cls|trigger)$" changed_files.txt || true)
           LWC_DIRS=$(grep -E "^force-app/.*/lwc/[^/]+" changed_files.txt | xargs -n1 dirname | sort -u || true)
           AURA_DIRS=$(grep -E "^force-app/.*/aura/[^/]+" changed_files.txt | xargs -n1 dirname | sort -u || true)
           STATIC_DIRS=$(grep -E "^force-app/.*/staticresources/[^/]+" changed_files.txt | xargs -n1 dirname | sort -u || true)
+
+          # Convert multi-line to space-separated strings
+          APEX_FILES=$(echo $APEX_FILES)
+          LWC_DIRS=$(echo $LWC_DIRS)
+          AURA_DIRS=$(echo $AURA_DIRS)
+          STATIC_DIRS=$(echo $STATIC_DIRS)
 
           echo "Apex files: $APEX_FILES"
           echo "LWC dirs: $LWC_DIRS"
           echo "Aura dirs: $AURA_DIRS"
           echo "StaticResource dirs: $STATIC_DIRS"
 
+          # Save to GitHub Actions env
           echo "APEX_FILES=$APEX_FILES" >> $GITHUB_ENV
           echo "LWC_DIRS=$LWC_DIRS" >> $GITHUB_ENV
           echo "AURA_DIRS=$AURA_DIRS" >> $GITHUB_ENV
