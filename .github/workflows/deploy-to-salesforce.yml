@@ -10,33 +10,34 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout repo (full history for diff)
+      # Step 1: Checkout repository (full history to detect changes)
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      # Step 2: Install Node.js
+      # Step 2: Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '20.x'
 
-      # Step 3: Install modern Salesforce CLI (sf)
+      # Step 3: Install Salesforce CLI
       - name: Install Salesforce CLI
         run: npm install sfdx-cli@latest --global
 
-
-      # Step 4: Authenticate to Salesforce using JWT
+      # Step 4: Authenticate with Salesforce
       - name: Authenticate with Salesforce Org
         run: |
           echo "${{ secrets.SF_JWT_KEY }}" > server.key
-          sf auth:jwt:grant \
+          sfdx force:auth:jwt:grant \
             --client-id ${{ secrets.SF_CONSUMER_KEY }} \
             --jwt-key-file server.key \
             --username ${{ secrets.SF_USERNAME }} \
             --instance-url ${{ secrets.SF_INSTANCE_URL }} \
-            --set-default
+            --setalias ci-org \
+            --setdefaultusername
+
 
       # Step 5: Detect changed metadata files
       - name: Detect changed metadata
