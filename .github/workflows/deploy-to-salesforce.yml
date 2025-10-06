@@ -43,20 +43,23 @@ jobs:
         id: changed
         run: |
           echo "Checking changed metadata..."
-          git diff --name-only HEAD^ HEAD > changed_files.txt
+          git diff --name-only origin/main...HEAD > changed_files.txt
           cat changed_files.txt
-          CHANGED_DIRS=$(grep "^force-app" changed_files.txt | awk -F/ '{print $1"/"$2"/"$3}' | sort | uniq | tr '\n' ',' | sed 's/,$//')
-          echo "changed_dirs=$CHANGED_DIRS" >> $GITHUB_ENV
+          
+          # Filter Salesforce metadata changes
+          CHANGED_PATHS=$(grep "^force-app" changed_files.txt | sort | uniq | tr '\n' ',' | sed 's/,$//')
+          echo "changed_paths=$CHANGED_PATHS" >> $GITHUB_ENV
 
-      # Step 6: Conditional Deployment
+      # Step 6: Deploy only changed metadata components/files
       - name: Deploy changed metadata only
-        if: env.changed_dirs != ''
+        if: env.changed_paths != ''
         run: |
-          echo "Deploying changed directories: ${{ env.changed_dirs }}"
+          echo "Deploying changed metadata paths: ${{ env.changed_paths }}"
           sfdx project deploy start \
-            --source-dir ${{ env.changed_dirs }} \
+            --source-dir ${{ env.changed_paths }} \
             --target-org ci-org \
             --test-level NoTestRun
+
 
       # Step 7: Skip deploy if nothing changed
       - name: Skip deploy
