@@ -1,9 +1,10 @@
-name: Salesforce CI/CD Deploy (Selective)
+name: Salesforce CI/CD Deploy (Alternative)
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -12,26 +13,41 @@ jobs:
     steps:
       # Step 1: Checkout repository (full history)
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       # Step 2: Setup Node.js
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '20.x'
 
-      # Step 3: Install Salesforce CLI
+      # Step 3: Install Salesforce CLI (Alternative method)
       - name: Install Salesforce CLI
         run: |
-          npm install @salesforce/cli --global
+          echo "📦 Installing Salesforce CLI..."
+          # Method 1: Try official npm package
+          npm install @salesforce/cli --global || {
+            echo "⚠️ Method 1 failed, trying alternative installation..."
+            # Method 2: Direct download and install
+            wget https://developer.salesforce.com/media/salesforce-cli/sf/channels/stable/sf-linux-x64.tar.xz
+            tar xJf sf-linux-x64.tar.xz
+            sudo mv sf /usr/local/bin/
+          }
+          
+          # Verify installation
+          echo "✅ Verifying Salesforce CLI installation..."
           sf --version
+          sf plugins --core
 
       # Step 4: Authenticate with Salesforce
       - name: Authenticate with Salesforce Org
         run: |
+          echo "🔐 Authenticating with Salesforce..."
           echo "${{ secrets.SF_JWT_KEY }}" > server.key
+          chmod 600 server.key
+          
           sf org login jwt \
             --client-id ${{ secrets.SF_CONSUMER_KEY }} \
             --jwt-key-file server.key \
@@ -40,14 +56,14 @@ jobs:
             --alias ci-org \
             --set-default
 
-      # Step 4.5: Verify authentication
+      # Step 5: Verify authentication
       - name: Verify Salesforce Authentication
         run: |
-          echo "🔐 Verifying Salesforce authentication..."
+          echo "🔍 Verifying Salesforce authentication..."
           sf org list
           sf org display --target-org ci-org
 
-      # Step 5: Detect changed metadata files
+      # Step 6: Detect changed metadata files
       - name: Detect changed metadata
         id: detect
         run: |
@@ -166,7 +182,7 @@ jobs:
           echo "- Static resources: $(echo "$STATIC_RESOURCES" | wc -l)"
           echo "- Other metadata: $(echo "$OTHER_METADATA" | wc -l)"
 
-      # Step 6: Deploy Apex files
+      # Step 7: Deploy Apex files
       - name: Deploy Apex Classes and Triggers
         if: env.HAS_CHANGES == 'true' && env.APEX_DIRS != ''
         run: |
@@ -180,7 +196,7 @@ jobs:
             sf project deploy start --source-dir $DEPLOY_DIRS --target-org ci-org --test-level RunLocalTests --wait 10
           fi
 
-      # Step 7: Deploy LWC components
+      # Step 8: Deploy LWC components
       - name: Deploy LWC Components
         if: env.HAS_CHANGES == 'true' && env.LWC_COMPONENTS != ''
         run: |
@@ -196,7 +212,7 @@ jobs:
             fi
           done
 
-      # Step 8: Deploy Aura components
+      # Step 9: Deploy Aura components
       - name: Deploy Aura Components
         if: env.HAS_CHANGES == 'true' && env.AURA_COMPONENTS != ''
         run: |
@@ -212,7 +228,7 @@ jobs:
             fi
           done
 
-      # Step 9: Deploy Static Resources
+      # Step 10: Deploy Static Resources
       - name: Deploy Static Resources
         if: env.HAS_CHANGES == 'true' && env.STATIC_RESOURCES != ''
         run: |
@@ -235,7 +251,7 @@ jobs:
             fi
           done
 
-      # Step 10: Deploy other metadata
+      # Step 11: Deploy other metadata
       - name: Deploy Other Metadata
         if: env.HAS_CHANGES == 'true' && env.OTHER_METADATA != ''
         run: |
@@ -246,12 +262,12 @@ jobs:
           # For other metadata, deploy the entire force-app directory to ensure dependencies are met
           sf project deploy start --source-dir "force-app/main/default" --target-org ci-org --test-level RunLocalTests --wait 10
 
-      # Step 11: Skip deploy if nothing changed
+      # Step 12: Skip deploy if nothing changed
       - name: Skip deploy
         if: env.HAS_CHANGES == 'false'
         run: echo "✅ No Salesforce metadata changes detected. Skipping deployment."
 
-      # Step 12: Deployment summary
+      # Step 13: Deployment summary
       - name: Deployment Summary
         if: env.HAS_CHANGES == 'true'
         run: |
@@ -272,3 +288,11 @@ jobs:
           if [ -n "$OTHER_METADATA" ]; then
             echo "🔧 Other Metadata: $(echo "$OTHER_METADATA" | wc -l) files"
           fi
+
+      # Step 14: Cleanup
+      - name: Cleanup
+        if: always()
+        run: |
+          echo "🧹 Cleaning up..."
+          rm -f server.key
+          echo "✅ Cleanup complete"

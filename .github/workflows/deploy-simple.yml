@@ -1,0 +1,91 @@
+name: Salesforce CI/CD Simple Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Step 2: Setup Node.js
+      - name: Setup Node.js  
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      # Step 3: Install Salesforce CLI (Simple method)
+      - name: Install Salesforce CLI
+        run: |
+          echo "Installing Salesforce CLI..."
+          npm install @salesforce/cli --global
+          echo "Verifying installation..."
+          sf version
+          sf plugins
+
+      # Step 4: Authenticate with Salesforce
+      - name: Authenticate with Salesforce
+        run: |
+          echo "Setting up authentication..."
+          echo "${{ secrets.SF_JWT_KEY }}" > server.key
+          chmod 600 server.key
+          
+          echo "Authenticating with Salesforce..."
+          sf org login jwt \
+            --client-id ${{ secrets.SF_CONSUMER_KEY }} \
+            --jwt-key-file server.key \
+            --username ${{ secrets.SF_USERNAME }} \
+            --instance-url ${{ secrets.SF_INSTANCE_URL }} \
+            --alias ciorg \
+            --set-default
+          
+          echo "Verifying authentication..."
+          sf org list
+          sf org display
+
+      # Step 5: Simple detection and deployment
+      - name: Detect and Deploy Changes
+        run: |
+          echo "Detecting changed files..."
+          
+          # Simple detection - compare with previous commit
+          if [ $(git rev-list --count HEAD) -gt 1 ]; then
+            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD | grep "^force-app/" || echo "")
+          else
+            CHANGED_FILES=$(git ls-tree -r --name-only HEAD | grep "^force-app/" || echo "")
+          fi
+          
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "No changes detected in force-app. Skipping deployment."
+            exit 0
+          fi
+          
+          # Simple deployment strategy - deploy all changes together
+          echo "Deploying changes..."
+          sf project deploy start \
+            --source-dir force-app/main/default \
+            --test-level RunLocalTests \
+            --wait 15 \
+            --verbose
+          
+          echo "Deployment completed successfully!"
+
+      # Step 6: Cleanup
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f server.key
+          echo "Cleanup completed"

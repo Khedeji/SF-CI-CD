@@ -1,0 +1,93 @@
+name: Test Salesforce Authentication
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-auth:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Setup Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+
+      # Step 3: Install Salesforce CLI
+      - name: Install Salesforce CLI
+        run: |
+          echo "Installing Salesforce CLI..."
+          npm install @salesforce/cli --global
+          
+          echo "Verifying CLI installation..."
+          sf version
+          
+          echo "Available plugins:"
+          sf plugins
+
+      # Step 4: Test Secrets (without exposing them)
+      - name: Test Secrets Configuration
+        run: |
+          echo "Testing secret configuration..."
+          
+          # Check if secrets exist (without revealing their values)
+          if [ -z "${{ secrets.SF_JWT_KEY }}" ]; then
+            echo "❌ SF_JWT_KEY secret is not configured"
+            exit 1
+          else
+            echo "✅ SF_JWT_KEY secret is configured"
+          fi
+          
+          if [ -z "${{ secrets.SF_CONSUMER_KEY }}" ]; then
+            echo "❌ SF_CONSUMER_KEY secret is not configured"
+            exit 1
+          else
+            echo "✅ SF_CONSUMER_KEY secret is configured"
+          fi
+          
+          if [ -z "${{ secrets.SF_USERNAME }}" ]; then
+            echo "❌ SF_USERNAME secret is not configured"
+            exit 1
+          else
+            echo "✅ SF_USERNAME secret is configured: ${{ secrets.SF_USERNAME }}"
+          fi
+          
+          if [ -z "${{ secrets.SF_INSTANCE_URL }}" ]; then
+            echo "❌ SF_INSTANCE_URL secret is not configured"
+            exit 1
+          else
+            echo "✅ SF_INSTANCE_URL secret is configured: ${{ secrets.SF_INSTANCE_URL }}"
+          fi
+
+      # Step 5: Test Authentication
+      - name: Test Salesforce Authentication
+        run: |
+          echo "Creating JWT key file..."
+          echo "${{ secrets.SF_JWT_KEY }}" > server.key
+          chmod 600 server.key
+          
+          echo "Testing authentication..."
+          sf org login jwt \
+            --client-id ${{ secrets.SF_CONSUMER_KEY }} \
+            --jwt-key-file server.key \
+            --username ${{ secrets.SF_USERNAME }} \
+            --instance-url ${{ secrets.SF_INSTANCE_URL }} \
+            --alias testorg
+          
+          echo "Verifying authentication..."
+          sf org list
+          sf org display --target-org testorg
+          
+          echo "✅ Authentication test successful!"
+
+      # Step 6: Cleanup
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f server.key
+          echo "Cleanup completed"

@@ -38,9 +38,12 @@ The original issue was that the detection step wasn't finding changed files. The
 - `.github/workflows/deploy-to-salesforce.yml` - Main deployment workflow (improved)
 
 ### New Files:
+- `.github/workflows/deploy-to-salesforce-alt.yml` - Alternative robust deployment workflow
+- `.github/workflows/deploy-simple.yml` - Simplified deployment workflow (recommended for testing)
 - `.github/workflows/test-detection.yml` - Test workflow to verify detection logic
+- `.github/workflows/test-auth.yml` - Test workflow to verify authentication only
 - `scripts/test-detection.sh` - Local testing script (Bash/Linux/Mac)
-- `scripts/test-detection.ps1` - Local testing script (PowerShell/Windows)
+- `scripts/test-detection-simple.ps1` - Local testing script (PowerShell/Windows)
 
 ## 🧪 Testing the Detection Logic
 
@@ -136,11 +139,28 @@ Make sure these secrets are configured in your GitHub repository:
 
 ## 🐛 Troubleshooting
 
+### Issue: "sf: command not found" ⚠️ **FIXED**
+
+This error means the Salesforce CLI is not properly installed. **SOLUTION IMPLEMENTED:**
+
+1. **Fixed CLI Installation**: Updated the workflow to install the correct package:
+   ```yaml
+   - name: Install Salesforce CLI
+     run: |
+       npm install @salesforce/cli --global
+       sf --version
+   ```
+
+2. **Alternative workflows created**:
+   - `deploy-to-salesforce-alt.yml` - Robust installation with fallback
+   - `deploy-simple.yml` - Simplified single-step deployment  
+   - `test-auth.yml` - Test authentication only
+
 ### Issue: "No force-app files detected"
 
 1. **Run the test script locally**:
    ```powershell
-   .\scripts\test-detection.ps1
+   .\scripts\test-detection-simple.ps1
    ```
 
 2. **Check the GitHub Actions logs** in the test workflow for detailed output
@@ -150,6 +170,22 @@ Make sure these secrets are configured in your GitHub repository:
    - Git history issues (use Strategy 3 fallback)
    - Remote branch not properly set up
 
+### Issue: "Authentication fails"
+
+1. **Run the authentication test workflow**:
+   - Go to GitHub Actions → Run workflow → `Test Salesforce Authentication`
+
+2. **Check your GitHub Secrets**:
+   - `SF_JWT_KEY` - Your Salesforce JWT private key (full content including headers)
+   - `SF_CONSUMER_KEY` - Connected App Consumer Key  
+   - `SF_USERNAME` - Salesforce username for the target org
+   - `SF_INSTANCE_URL` - Salesforce instance URL (e.g., https://login.salesforce.com)
+
+3. **Verify Connected App Setup**:
+   - JWT Bearer Flow is enabled
+   - Certificate is uploaded correctly
+   - Proper permissions assigned to user
+
 ### Issue: "Deployment fails"
 
 1. **Check Salesforce CLI version**:
@@ -157,15 +193,14 @@ Make sure these secrets are configured in your GitHub repository:
    sf --version
    ```
 
-2. **Verify authentication**:
-   ```bash
-   sf org list
-   ```
-
-3. **Test deployment manually**:
+2. **Test deployment manually**:
    ```bash
    sf project deploy start --source-dir "force-app/main/default/classes" --target-org your-org --dry-run
    ```
+
+3. **Use the simple workflow first**:
+   - Try `deploy-simple.yml` which deploys everything together
+   - Once that works, switch to selective deployment
 
 ## 🎯 Benefits of This Approach
 
