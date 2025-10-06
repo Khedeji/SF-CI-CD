@@ -39,6 +39,21 @@ jobs:
             --setdefaultusername
 
       # Step 5: Detect changed metadata files (based on last commit)
+      # - name: Detect changed metadata
+      #   id: detect
+      #   run: |
+      #     echo "🔍 Checking changed metadata files between last 2 commits..."
+      #     git diff --name-only HEAD^ HEAD > changed_files.txt || echo ""
+      #     cat changed_files.txt
+
+      #     CHANGED_PATHS=$(grep "^force-app" changed_files.txt | sort | uniq | tr '\n' ',' | sed 's/,$//')
+      #     if [ -z "$CHANGED_PATHS" ]; then
+      #       echo "⚠️ No Salesforce metadata changes detected."
+      #     else
+      #       echo "✅ Changed paths: $CHANGED_PATHS"
+      #     fi
+      #     echo "changed_paths=$CHANGED_PATHS" >> $GITHUB_ENV
+      # Detect changed metadata (updated)
       - name: Detect changed metadata
         id: detect
         run: |
@@ -46,23 +61,29 @@ jobs:
           git diff --name-only HEAD^ HEAD > changed_files.txt || echo ""
           cat changed_files.txt
 
-          CHANGED_PATHS=$(grep "^force-app" changed_files.txt | sort | uniq | tr '\n' ',' | sed 's/,$//')
-          if [ -z "$CHANGED_PATHS" ]; then
+          # Extract unique folders of changed Salesforce metadata
+          CHANGED_DIRS=$(grep "^force-app" changed_files.txt | xargs -n1 dirname | sort -u)
+          if [ -z "$CHANGED_DIRS" ]; then
             echo "⚠️ No Salesforce metadata changes detected."
           else
-            echo "✅ Changed paths: $CHANGED_PATHS"
+            echo "✅ Changed directories:"
+            echo "$CHANGED_DIRS"
           fi
-          echo "changed_paths=$CHANGED_PATHS" >> $GITHUB_ENV
+          echo "changed_dirs=$CHANGED_DIRS" >> $GITHUB_ENV
+
 
       # Step 6: Deploy changed metadata
+      # Deploy changed metadata (loop over each folder)
       - name: Deploy changed metadata only
-        if: env.changed_paths != ''
+        if: env.changed_dirs != ''
         run: |
-          echo "🚀 Deploying changed metadata: ${{ env.changed_paths }}"
-          sfdx project deploy start \
-            --source-dir ${{ env.changed_paths }} \
-            --target-org ci-org \
-            --test-level NoTestRun
+          echo "🚀 Deploying changed metadata..."
+          for dir in ${{ env.changed_dirs }}
+          do
+            echo "Deploying $dir"
+            sfdx project deploy start --source-dir "$dir" --target-org ci-org --test-level NoTestRun
+          done
+
 
       # Step 7: Skip deployment if no changes
       - name: Skip deployment
