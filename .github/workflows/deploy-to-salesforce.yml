@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout repository (full history to detect changes)
+      # Step 1: Checkout repository (fetch full history)
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
@@ -26,7 +26,7 @@ jobs:
       - name: Install Salesforce CLI
         run: npm install sfdx-cli@latest --global
 
-      # Step 4: Authenticate with Salesforce
+      # Step 4: Authenticate with Salesforce Org
       - name: Authenticate with Salesforce Org
         run: |
           echo "${{ secrets.SF_JWT_KEY }}" > server.key
@@ -38,13 +38,15 @@ jobs:
             --setalias ci-org \
             --setdefaultusername
 
-      # Step 5: Detect changed files
+      # Step 5: Detect changed metadata
       - name: Detect changed metadata
         id: detect
         run: |
           echo "🔍 Detecting changed metadata files..."
-          git fetch origin main
-          git diff --name-only origin/main...HEAD > changed_files.txt
+          git fetch --no-tags origin main
+
+          # Get changed files between last commit and current
+          git diff --name-only ${{ github.event.before }} ${{ github.sha }} > changed_files.txt
           cat changed_files.txt
 
           # Separate by metadata type
@@ -63,47 +65,43 @@ jobs:
           echo "AURA_DIRS=$AURA_DIRS" >> $GITHUB_ENV
           echo "STATIC_DIRS=$STATIC_DIRS" >> $GITHUB_ENV
 
-      # Step 6: Deploy Apex classes/triggers
-      - name: Deploy Apex classes/triggers
+      # Step 6: Deploy changed Apex classes/triggers
+      - name: Deploy Apex
         if: env.APEX_FILES != ''
         run: |
           echo "🚀 Deploying Apex files..."
-          for file in $APEX_FILES; do
-            folder=$(dirname $file)
-            echo "Deploying folder: $folder"
-            sfdx project deploy start --source-dir "$folder" --target-org ci-org --test-level RunLocalTests
+          for f in $APEX_FILES; do
+            sfdx force:source:deploy -p "$f" --target-org ci-org --test-level RunLocalTests
           done
 
-      # Step 7: Deploy LWC
-      - name: Deploy LWC components
+      # Step 7: Deploy changed LWC
+      - name: Deploy LWC
         if: env.LWC_DIRS != ''
         run: |
           echo "🚀 Deploying LWC directories..."
           for dir in $LWC_DIRS; do
-            echo "Deploying $dir"
             sfdx project deploy start --source-dir "$dir" --target-org ci-org --test-level NoTestRun
           done
 
-      # Step 8: Deploy Aura components
-      - name: Deploy Aura components
+      # Step 8: Deploy changed Aura components
+      - name: Deploy Aura
         if: env.AURA_DIRS != ''
         run: |
           echo "🚀 Deploying Aura directories..."
           for dir in $AURA_DIRS; do
-            echo "Deploying $dir"
             sfdx project deploy start --source-dir "$dir" --target-org ci-org --test-level NoTestRun
           done
 
-      # Step 9: Deploy Static Resources
-      - name: Deploy Static Resources
+      # Step 9: Deploy changed Static Resources
+      - name: Deploy StaticResources
         if: env.STATIC_DIRS != ''
         run: |
-          echo "🚀 Deploying Static Resource directories..."
+          echo "🚀 Deploying StaticResource directories..."
           for dir in $STATIC_DIRS; do
-            echo "Deploying $dir"
             sfdx project deploy start --source-dir "$dir" --target-org ci-org --test-level NoTestRun
+          done
 
-      # Step 10: Skip if nothing changed
+      # Step 10: Skip deploy if nothing changed
       - name: Skip deploy
         if: env.APEX_FILES == '' && env.LWC_DIRS == '' && env.AURA_DIRS == '' && env.STATIC_DIRS == ''
         run: echo "✅ No Salesforce metadata changes detected. Skipping deployment."
