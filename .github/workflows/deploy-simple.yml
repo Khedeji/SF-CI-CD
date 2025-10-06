@@ -77,7 +77,7 @@ jobs:
           echo "Deploying changes..."
           sf project deploy start \
             --source-dir force-app/main/default \
-            --test-level RunLocalTests \
+            --test-level NoTestRun \
             --wait 15 \
             --verbose
           

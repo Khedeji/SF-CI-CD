@@ -1,0 +1,294 @@
+name: Salesforce CI/CD Flexible Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+    inputs:
+      test_level:
+        description: 'Test Level for Deployment'
+        required: true
+        default: 'NoTestRun'
+        type: choice
+        options:
+        - NoTestRun
+        - RunLocalTests
+        - RunAllTestsInOrg
+        - RunSpecifiedTests
+      target_org:
+        description: 'Target Org Alias'
+        required: false
+        default: 'ci-org'
+      deploy_strategy:
+        description: 'Deployment Strategy'
+        required: true
+        default: 'selective'
+        type: choice
+        options:
+        - selective
+        - full
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Step 2: Setup Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+
+      # Step 3: Install Salesforce CLI
+      - name: Install Salesforce CLI
+        run: |
+          npm install @salesforce/cli --global
+          sf --version
+
+      # Step 4: Authenticate with Salesforce
+      - name: Authenticate with Salesforce Org
+        run: |
+          echo "${{ secrets.SF_JWT_KEY }}" > server.key
+          chmod 600 server.key
+          sf org login jwt \
+            --client-id ${{ secrets.SF_CONSUMER_KEY }} \
+            --jwt-key-file server.key \
+            --username ${{ secrets.SF_USERNAME }} \
+            --instance-url ${{ secrets.SF_INSTANCE_URL }} \
+            --alias ci-org \
+            --set-default
+
+      # Step 5: Set deployment parameters
+      - name: Set Deployment Parameters
+        run: |
+          # Set test level based on input or default for push events
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TEST_LEVEL="${{ github.event.inputs.test_level }}"
+            TARGET_ORG="${{ github.event.inputs.target_org }}"
+            DEPLOY_STRATEGY="${{ github.event.inputs.deploy_strategy }}"
+          else
+            # Default for push events - use NoTestRun for development
+            TEST_LEVEL="NoTestRun"
+            TARGET_ORG="ci-org"
+            DEPLOY_STRATEGY="selective"
+          fi
+          
+          echo "TEST_LEVEL=$TEST_LEVEL" >> $GITHUB_ENV
+          echo "TARGET_ORG=$TARGET_ORG" >> $GITHUB_ENV
+          echo "DEPLOY_STRATEGY=$DEPLOY_STRATEGY" >> $GITHUB_ENV
+          
+          echo "🎯 Deployment Configuration:"
+          echo "- Test Level: $TEST_LEVEL"
+          echo "- Target Org: $TARGET_ORG"
+          echo "- Deploy Strategy: $DEPLOY_STRATEGY"
+
+      # Step 6: Detect changed metadata (only for selective deployment)
+      - name: Detect changed metadata
+        if: env.DEPLOY_STRATEGY == 'selective'
+        id: detect
+        run: |
+          echo "🔍 Detecting changed metadata files..."
+          
+          # Try multiple strategies to find changed files
+          CHANGED_FILES=""
+          
+          if [ $(git rev-list --count HEAD) -gt 1 ]; then
+            echo "📋 Comparing with previous commit..."
+            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD | grep "^force-app/" || true)
+          fi
+          
+          if [ -z "$CHANGED_FILES" ] && git rev-parse --verify origin/main >/dev/null 2>&1; then
+            echo "📋 Comparing with origin/main..."
+            MERGE_BASE=$(git merge-base HEAD origin/main 2>/dev/null || echo "")
+            if [ -n "$MERGE_BASE" ]; then
+              CHANGED_FILES=$(git diff --name-only $MERGE_BASE HEAD | grep "^force-app/" || true)
+            else
+              CHANGED_FILES=$(git diff --name-only origin/main HEAD | grep "^force-app/" || true)
+            fi
+          fi
+          
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "📋 Using all force-app files (fallback)..."
+            CHANGED_FILES=$(git ls-tree -r --name-only HEAD | grep "^force-app/" || true)
+          fi
+          
+          echo "📂 Changed files detected:"
+          echo "$CHANGED_FILES"
+          
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "HAS_CHANGES=false" >> $GITHUB_ENV
+            exit 0
+          else
+            echo "HAS_CHANGES=true" >> $GITHUB_ENV
+          fi
+          
+          # Process different metadata types
+          APEX_DIRS=""
+          LWC_COMPONENTS=""
+          AURA_COMPONENTS=""
+          STATIC_RESOURCES=""
+          OTHER_METADATA=""
+          
+          # Apex files
+          APEX_FILES=$(echo "$CHANGED_FILES" | grep -E "\.(cls|trigger)$" || true)
+          if [ -n "$APEX_FILES" ]; then
+            APEX_DIRS=$(echo "$CHANGED_FILES" | grep -E "/classes/.*\.(cls|trigger)$" | sed 's|/[^/]*$||' | sort -u || true)
+          fi
+          
+          # LWC components
+          if echo "$CHANGED_FILES" | grep -q "/lwc/"; then
+            LWC_COMPONENTS=$(echo "$CHANGED_FILES" | grep "/lwc/" | sed -n 's|.*force-app/main/default/lwc/\([^/]*\)/.*|\1|p' | sort -u || true)
+          fi
+          
+          # Aura components  
+          if echo "$CHANGED_FILES" | grep -q "/aura/"; then
+            AURA_COMPONENTS=$(echo "$CHANGED_FILES" | grep "/aura/" | sed -n 's|.*force-app/main/default/aura/\([^/]*\)/.*|\1|p' | sort -u || true)
+          fi
+          
+          # Static Resources
+          if echo "$CHANGED_FILES" | grep -q "/staticresources/"; then
+            STATIC_RESOURCES=$(echo "$CHANGED_FILES" | grep "/staticresources/" | sed -n 's|.*force-app/main/default/staticresources/\([^/]*\).*|\1|p' | sort -u || true)
+          fi
+          
+          # Other metadata
+          OTHER_METADATA=$(echo "$CHANGED_FILES" | grep -v -E "/(classes|lwc|aura|staticresources)/" | grep "^force-app/" || true)
+          
+          # Set environment variables
+          echo "APEX_DIRS<<EOF" >> $GITHUB_ENV
+          echo "$APEX_DIRS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          
+          echo "LWC_COMPONENTS<<EOF" >> $GITHUB_ENV
+          echo "$LWC_COMPONENTS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          
+          echo "AURA_COMPONENTS<<EOF" >> $GITHUB_ENV
+          echo "$AURA_COMPONENTS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          
+          echo "STATIC_RESOURCES<<EOF" >> $GITHUB_ENV
+          echo "$STATIC_RESOURCES" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          
+          echo "OTHER_METADATA<<EOF" >> $GITHUB_ENV
+          echo "$OTHER_METADATA" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      # Step 7: Deploy - Full Strategy
+      - name: Deploy All Metadata (Full Strategy)
+        if: env.DEPLOY_STRATEGY == 'full'
+        run: |
+          echo "🚀 Deploying all metadata (full deployment)..."
+          sf project deploy start \
+            --source-dir force-app/main/default \
+            --target-org ${{ env.TARGET_ORG }} \
+            --test-level ${{ env.TEST_LEVEL }} \
+            --wait 20 \
+            --verbose
+
+      # Step 8: Deploy - Selective Strategy - Apex
+      - name: Deploy Apex (Selective)
+        if: env.DEPLOY_STRATEGY == 'selective' && env.HAS_CHANGES == 'true' && env.APEX_DIRS != ''
+        run: |
+          echo "🚀 Deploying Apex classes and triggers (selective)..."
+          echo "Test Level: ${{ env.TEST_LEVEL }}"
+          echo "Apex directories: $APEX_DIRS"
+          
+          DEPLOY_DIRS=$(echo "$APEX_DIRS" | tr '\n' ' ')
+          if [ -n "$DEPLOY_DIRS" ]; then
+            sf project deploy start \
+              --source-dir $DEPLOY_DIRS \
+              --target-org ${{ env.TARGET_ORG }} \
+              --test-level ${{ env.TEST_LEVEL }} \
+              --wait 15
+          fi
+
+      # Step 9: Deploy - Selective Strategy - LWC
+      - name: Deploy LWC Components (Selective)
+        if: env.DEPLOY_STRATEGY == 'selective' && env.HAS_CHANGES == 'true' && env.LWC_COMPONENTS != ''
+        run: |
+          echo "🚀 Deploying LWC components (selective)..."
+          echo "$LWC_COMPONENTS" | while read -r component; do
+            if [ -n "$component" ]; then
+              echo "Deploying LWC: $component"
+              sf project deploy start \
+                --source-dir "force-app/main/default/lwc/$component" \
+                --target-org ${{ env.TARGET_ORG }} \
+                --test-level NoTestRun \
+                --wait 5
+            fi
+          done
+
+      # Step 10: Deploy - Selective Strategy - Aura
+      - name: Deploy Aura Components (Selective)
+        if: env.DEPLOY_STRATEGY == 'selective' && env.HAS_CHANGES == 'true' && env.AURA_COMPONENTS != ''
+        run: |
+          echo "🚀 Deploying Aura components (selective)..."
+          echo "$AURA_COMPONENTS" | while read -r component; do
+            if [ -n "$component" ]; then
+              echo "Deploying Aura: $component"
+              sf project deploy start \
+                --source-dir "force-app/main/default/aura/$component" \
+                --target-org ${{ env.TARGET_ORG }} \
+                --test-level NoTestRun \
+                --wait 5
+            fi
+          done
+
+      # Step 11: Deploy - Selective Strategy - Static Resources
+      - name: Deploy Static Resources (Selective)
+        if: env.DEPLOY_STRATEGY == 'selective' && env.HAS_CHANGES == 'true' && env.STATIC_RESOURCES != ''
+        run: |
+          echo "🚀 Deploying Static Resources (selective)..."
+          echo "$STATIC_RESOURCES" | while read -r resource; do
+            if [ -n "$resource" ]; then
+              echo "Deploying Static Resource: $resource"
+              if [ -d "force-app/main/default/staticresources/$resource" ]; then
+                sf project deploy start \
+                  --source-dir "force-app/main/default/staticresources/$resource" \
+                  --target-org ${{ env.TARGET_ORG }} \
+                  --test-level NoTestRun \
+                  --wait 5
+              fi
+            fi
+          done
+
+      # Step 12: Deploy - Selective Strategy - Other Metadata
+      - name: Deploy Other Metadata (Selective)
+        if: env.DEPLOY_STRATEGY == 'selective' && env.HAS_CHANGES == 'true' && env.OTHER_METADATA != ''
+        run: |
+          echo "🚀 Deploying other metadata (selective)..."
+          sf project deploy start \
+            --source-dir force-app/main/default \
+            --target-org ${{ env.TARGET_ORG }} \
+            --test-level ${{ env.TEST_LEVEL }} \
+            --wait 15
+
+      # Step 13: No changes detected
+      - name: No Changes Detected
+        if: env.DEPLOY_STRATEGY == 'selective' && env.HAS_CHANGES == 'false'
+        run: echo "✅ No changes detected. Skipping deployment."
+
+      # Step 14: Deployment Summary
+      - name: Deployment Summary
+        if: success()
+        run: |
+          echo "🎉 Deployment completed successfully!"
+          echo "- Strategy: ${{ env.DEPLOY_STRATEGY }}"
+          echo "- Test Level: ${{ env.TEST_LEVEL }}"
+          echo "- Target Org: ${{ env.TARGET_ORG }}"
+
+      # Step 15: Cleanup
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f server.key
+          echo "✅ Cleanup completed"
