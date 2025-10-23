@@ -30,10 +30,10 @@ jobs:
         run: |
           echo "${{ secrets.SF_JWT_KEY }}" > server.key
           sfdx force:auth:jwt:grant \
-            --client-id ${{ secrets.SF_CONSUMER_KEY }} \
+            --client-id ${{ secrets.SF_CONSUMER_KEY1 }} \
             --jwt-key-file server.key \
-            --username ${{ secrets.SF_USERNAME }} \
-            --instance-url ${{ secrets.SF_INSTANCE_URL }} \
+            --username ${{ secrets.SF_USERNAME1 }} \
+            --instance-url ${{ secrets.SF_INSTANCE_URL1 }} \
             --alias ci-org \
             --setdefaultusername
       # Step 5: Verify org authentication
