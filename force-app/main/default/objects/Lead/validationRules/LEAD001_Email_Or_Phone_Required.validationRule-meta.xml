@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>LEAD001_Email_Or_Phone_Required</fullName>
+    <active>true</active>
+    <description>email or phone field to be populated when a lead is created or when it is edited and either the email or phone field has been changed.</description>
+    <errorConditionFormula>(ISNEW() || ISCHANGED(Email) || ISCHANGED(Phone)) &amp;&amp;
+ISBLANK(Email) &amp;&amp; ISBLANK(Phone)</errorConditionFormula>
+    <errorMessage>Either Email or Phone are required [LEAD001]</errorMessage>
+</ValidationRule>

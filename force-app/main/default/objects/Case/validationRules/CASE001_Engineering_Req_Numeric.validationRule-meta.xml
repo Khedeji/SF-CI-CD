@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>CASE001_Engineering_Req_Numeric</fullName>
+    <active>true</active>
+    <description>restrict the Engineering Req Number field (API name EngineeringReqNumber__c) to numeric values if it is populated.</description>
+    <errorConditionFormula>NOT(ISBLANK(EngineeringReqNumber__c)) &amp;&amp; NOT(ISNUMBER(EngineeringReqNumber__c))</errorConditionFormula>
+    <errorDisplayField>EngineeringReqNumber__c</errorDisplayField>
+    <errorMessage>Engineering Req Field must be numeric [CASE001]</errorMessage>
+</ValidationRule>
