@@ -10,43 +10,25 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      # Step 2: Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '20.x'
 
-      # Step 3: Install Salesforce CLI
       - name: Install Salesforce CLI
-        run: npm install @salesforce/cli --global
+        run: npm install -g @salesforce/cli
 
-      # Step 4: Authenticate to Salesforce using JWT
-      - name: Authenticate with Salesforce Org
-        shell: bash
+      - name: Authenticate with Salesforce using JWT
         run: |
           echo "${{ secrets.SF_JWT_KEY }}" > server.key
-          sf org login jwt \
-            --username ${{ secrets.SF_USERNAME1 }} \
-            --jwt-key-file server.key \
-            --client-id ${{ secrets.SF_CONSUMER_KEY1 }} \
-            --instance-url ${{ secrets.SF_INSTANCE_URL1 }} \
-            --alias ci-org \
-            --set-default
+          sf org login jwt --username ${{ secrets.SF_USERNAME1 }} --jwt-key-file server.key --client-id ${{ secrets.SF_CONSUMER_KEY1 }} --instance-url ${{ secrets.SF_INSTANCE_URL1 }} --alias ci-org --set-default
 
-      # Step 5: Verify authentication
-      - name: Verify Org Connection
+      - name: Verify Auth
         run: sf org display --target-org ci-org
 
-      # Step 6: Deploy source to Salesforce
-      - name: Deploy to Salesforce Org
+      - name: Deploy to Salesforce
         run: |
-          sf project deploy start \
-            --source-dir force-app \
-            --target-org ci-org \
-            --test-level NoTestRun \
-            --json \
-            --verbose
+          sf project deploy start --source-dir force-app --target-org ci-org --test-level RunLocalTests --json --verbose
