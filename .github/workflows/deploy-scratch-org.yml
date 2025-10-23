@@ -30,10 +30,10 @@ jobs:
         run: |
           echo "${{ secrets.SF_JWT_KEY }}" > server.key
           sf org login jwt \
-            --username ${{ secrets.SF_USERNAME }} \
-            --key-file server.key \
-            --client-id ${{ secrets.SF_CONSUMER_KEY }} \
-            --instance-url ${{ secrets.SF_INSTANCE_URL }} \
+            --username ${{ secrets.SF_USERNAME1 }} \
+            --jwt-key-file server.key \
+            --client-id ${{ secrets.SF_CONSUMER_KEY1 }} \
+            --instance-url ${{ secrets.SF_INSTANCE_URL1 }} \
             --alias ci-org \
             --set-default
 
