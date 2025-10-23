@@ -1,6 +1,5 @@
 name: Salesforce CI/CD Deploy
 
-# Trigger on pushes to the main branch
 on:
   push:
     branches:
@@ -11,22 +10,23 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout the repo
+      # Step 1: Checkout repo
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      # Step 2: Install Node.js (required for sfdx-cli)
+      # Step 2: Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '20.x'
 
-      # Step 3: Install Salesforce CLI (sfdx-cli, legacy but stable)
+      # Step 3: Install Salesforce CLI (sfdx)
       - name: Install Salesforce CLI
         run: npm install sfdx-cli@latest --global
 
-      # Step 4: Authenticate with Salesforce using JWT
+      # Step 4: Authenticate with Salesforce
       - name: Authenticate with Salesforce Org
+        shell: bash
         run: |
           echo "${{ secrets.SF_JWT_KEY }}" > server.key
           sfdx force:auth:jwt:grant \
@@ -37,12 +37,16 @@ jobs:
             --setalias ci-org \
             --setdefaultusername
 
-      # Step 5: Verify org authentication
-      - name: Verify Org
-        run: sfdx force:org:display --target-org ci-org
+      # Step 5: Verify authentication
+      - name: Verify Org Connection
+        run: sfdx force:org:display -u ci-org
 
-      # Step 6: Deploy metadata to Salesforce
-      - name: Deploy Salesforce Metadata
-        run: sfdx project deploy start --source-dir force-app --target-org ci-org --test-level NoTestRun
-
-
+      # Step 6: Deploy metadata
+      - name: Deploy to Salesforce Org
+        run: |
+          sfdx force:source:deploy \
+            -p force-app \
+            -u ci-org \
+            --testlevel RunLocalTests \
+            --json \
+            --loglevel fatal
